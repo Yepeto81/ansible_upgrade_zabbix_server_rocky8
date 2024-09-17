@@ -1,0 +1,73 @@
+
+---
+- hosts: zabbix_servers
+  become: yes
+
+  vars:
+    zabbix_current_version: "6.0"
+    zabbix_target_version: "6.2"
+
+  tasks:
+    - name: Update Rocky 8 system
+      dnf:
+        name: '*'
+        state: latest
+        update_cache: yes
+
+    - name: Stop Zabbix server
+      systemd:
+        name: zabbix-server
+        state: stopped
+
+    - name: Backup Zabbix configuration
+      archive:
+        path:
+          - /etc/zabbix/zabbix_server.conf
+          - /etc/zabbix/web/zabbix.conf.php
+        dest: /tmp/zabbix_backup.tar.gz
+
+    - name: Remove existing Zabbix repository
+      yum:
+        name: zabbix-release
+        state: absent
+
+    - name: Create Zabbix {{ zabbix_target_version }} repository file
+      copy:
+        content: |
+          [zabbix]
+          name=Zabbix Official Repository - $basearch
+          baseurl=https://repo.zabbix.com/zabbix/{{ zabbix_target_version }}/rhel/8/$basearch/
+          enabled=1
+          gpgcheck=1
+          gpgkey=https://repo.zabbix.com/zabbix-official-repo.key
+        dest: /etc/yum.repos.d/zabbix.repo
+        mode: '0644'
+
+    - name: Update package lists
+      dnf:
+        update_cache: yes
+
+    - name: Update Zabbix packages
+      dnf:
+        name:
+          - zabbix-server-mysql
+          - zabbix-web-mysql
+          - zabbix-agent
+        state: latest
+        update_cache: yes
+
+    - name: Restore Zabbix configuration
+      unarchive:
+        src: /tmp/zabbix_backup.tar.gz
+        dest: /etc/zabbix/
+        remote_src: yes
+
+    - name: Start Zabbix server
+      systemd:
+        name: zabbix-server
+        state: started
+        enabled: yes
+
+    - name: Update variable for current Zabbix version
+      set_fact:
+        zabbix_current_version: "{{ zabbix_target_version }}"
